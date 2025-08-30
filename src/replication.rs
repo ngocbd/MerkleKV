@@ -82,6 +82,7 @@ impl Replicator {
     /// 
     /// # Behavior
     /// - Connects to the MQTT broker specified in config
+    /// - Uses credentials if client_password is configured
     /// - Subscribes to replication topic pattern
     /// - Starts background task to handle incoming messages
     /// 
@@ -89,19 +90,47 @@ impl Replicator {
     /// - Publishes to: `{topic_prefix}/events`
     /// - Subscribes to: `{topic_prefix}/events/#`
     pub async fn new(config: &Config) -> Result<Self> {
+        // Get client_id with environment variable override
+        let client_id = std::env::var("CLIENT_ID")
+            .unwrap_or_else(|_| config.replication.client_id.clone());
+        
+        // Get client_password with environment variable override
+        let client_password = std::env::var("CLIENT_PASSWORD")
+            .ok()
+            .or_else(|| config.replication.client_password.clone());
+        
+        // Get mqtt_broker with environment variable override
+        let mqtt_broker = std::env::var("MQTT_BROKER")
+            .unwrap_or_else(|_| config.replication.mqtt_broker.clone());
+        
+        // Get mqtt_port with environment variable override
+        let mqtt_port = std::env::var("MQTT_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(config.replication.mqtt_port);
+        
+        // Get topic_prefix with environment variable override
+        let topic_prefix = std::env::var("TOPIC_PREFIX")
+            .unwrap_or_else(|_| config.replication.topic_prefix.clone());
+        
         // Configure MQTT client options
         let mut mqtt_options = MqttOptions::new(
-            &config.replication.client_id,
-            &config.replication.mqtt_broker,
-            config.replication.mqtt_port,
+            &client_id,
+            &mqtt_broker,
+            mqtt_port,
         );
         mqtt_options.set_keep_alive(Duration::from_secs(30));
+        
+        // Set credentials if password is available
+        if let Some(password) = client_password {
+            mqtt_options.set_credentials(&client_id, &password);
+        }
         
     // Create MQTT client and event loop
     let (client, mut eventloop) = AsyncClient::new(mqtt_options, 10);
         
         // Subscribe to the replication topic pattern
-        let topic = format!("{}/events/#", config.replication.topic_prefix);
+        let topic = format!("{}/events/#", topic_prefix);
         client.subscribe(&topic, QoS::AtLeastOnce).await?;
 
         // Create broadcast channel and spawn the MQTT poller
@@ -129,8 +158,8 @@ impl Replicator {
         
         Ok(Self {
             client,
-            topic_prefix: config.replication.topic_prefix.clone(),
-            node_id: config.replication.client_id.clone(),
+            topic_prefix,
+            node_id: client_id,
             codec: ChangeCodec::Cbor,
             tx,
         })

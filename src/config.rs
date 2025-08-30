@@ -7,6 +7,14 @@
 //! - MQTT replication settings
 //! - Synchronization intervals
 //!
+//! ## Environment Variable Overrides
+//! Some configuration values can be overridden by environment variables:
+//! - `CLIENT_ID`: Overrides the MQTT client ID
+//! - `CLIENT_PASSWORD`: Overrides the MQTT client password
+//! - `MQTT_BROKER`: Overrides the MQTT broker hostname/IP
+//! - `MQTT_PORT`: Overrides the MQTT broker port
+//! - `TOPIC_PREFIX`: Overrides the MQTT topic prefix
+//!
 //! ## Example Configuration File (config.toml)
 //! ```toml
 //! host = "127.0.0.1"
@@ -20,6 +28,7 @@
 //! mqtt_port = 1883
 //! topic_prefix = "merkle_kv"
 //! client_id = "node1"
+//! client_password = "secret"  # Optional, can be overridden by CLIENT_PASSWORD env var
 //! ```
 
 use anyhow::Result;
@@ -79,6 +88,11 @@ pub struct ReplicationConfig {
     /// Unique identifier for this node in MQTT communications
     /// Should be unique across all nodes in the cluster
     pub client_id: String,
+
+    /// Optional password for MQTT authentication
+    /// Can be overridden by CLIENT_PASSWORD environment variable
+    #[serde(default)]
+    pub client_password: Option<String>,
 }
 
 impl Config {
@@ -90,6 +104,14 @@ impl Config {
     /// # Returns
     /// * `Result<Config>` - Parsed configuration or error if file is invalid
     ///
+    /// # Environment Variable Overrides
+    /// The following environment variables will override config file values:
+    /// - `CLIENT_ID`: Overrides `replication.client_id`
+    /// - `CLIENT_PASSWORD`: Overrides `replication.client_password`
+    /// - `MQTT_BROKER`: Overrides `replication.mqtt_broker`
+    /// - `MQTT_PORT`: Overrides `replication.mqtt_port`
+    /// - `TOPIC_PREFIX`: Overrides `replication.topic_prefix`
+    ///
     /// # Example
     /// ```rust
     /// use std::path::Path;
@@ -98,7 +120,35 @@ impl Config {
     pub fn load(path: &Path) -> Result<Self> {
         let settings = ConfigLib::builder().add_source(File::from(path)).build()?;
 
-        let config: Config = settings.try_deserialize()?;
+        let mut config: Config = settings.try_deserialize()?;
+        
+        // Override client_id from environment variable if present
+        if let Ok(client_id) = std::env::var("CLIENT_ID") {
+            config.replication.client_id = client_id;
+        }
+        
+        // Override client_password from environment variable if present
+        if let Ok(client_password) = std::env::var("CLIENT_PASSWORD") {
+            config.replication.client_password = Some(client_password);
+        }
+        
+        // Override mqtt_broker from environment variable if present
+        if let Ok(mqtt_broker) = std::env::var("MQTT_BROKER") {
+            config.replication.mqtt_broker = mqtt_broker;
+        }
+        
+        // Override mqtt_port from environment variable if present
+        if let Ok(mqtt_port) = std::env::var("MQTT_PORT") {
+            if let Ok(port) = mqtt_port.parse::<u16>() {
+                config.replication.mqtt_port = port;
+            }
+        }
+        
+        // Override topic_prefix from environment variable if present
+        if let Ok(topic_prefix) = std::env::var("TOPIC_PREFIX") {
+            config.replication.topic_prefix = topic_prefix;
+        }
+        
         Ok(config)
     }
 
@@ -111,10 +161,18 @@ impl Config {
     /// - Disables replication by default
     /// - Sets 60-second sync interval
     ///
+    /// # Environment Variable Overrides
+    /// Even when using defaults, environment variables will still be applied:
+    /// - `CLIENT_ID`: Overrides the default client_id
+    /// - `CLIENT_PASSWORD`: Sets the client_password (default is None)
+    /// - `MQTT_BROKER`: Overrides the default mqtt_broker
+    /// - `MQTT_PORT`: Overrides the default mqtt_port
+    /// - `TOPIC_PREFIX`: Overrides the default topic_prefix
+    ///
     /// # Returns
     /// * `Config` - Configuration with default values
     pub fn default() -> Self {
-        Self {
+        let mut config = Self {
             host: "127.0.0.1".to_string(),
             port: 7379,
             storage_path: "data".to_string(),
@@ -125,9 +183,35 @@ impl Config {
                 mqtt_port: 1883,
                 topic_prefix: "merkle_kv".to_string(),
                 client_id: "node1".to_string(),
+                client_password: None,
             },
             sync_interval_seconds: 60,
+        };
+        
+        // Apply environment variable overrides
+        if let Ok(client_id) = std::env::var("CLIENT_ID") {
+            config.replication.client_id = client_id;
         }
+        
+        if let Ok(client_password) = std::env::var("CLIENT_PASSWORD") {
+            config.replication.client_password = Some(client_password);
+        }
+        
+        if let Ok(mqtt_broker) = std::env::var("MQTT_BROKER") {
+            config.replication.mqtt_broker = mqtt_broker;
+        }
+        
+        if let Ok(mqtt_port) = std::env::var("MQTT_PORT") {
+            if let Ok(port) = mqtt_port.parse::<u16>() {
+                config.replication.mqtt_port = port;
+            }
+        }
+        
+        if let Ok(topic_prefix) = std::env::var("TOPIC_PREFIX") {
+            config.replication.topic_prefix = topic_prefix;
+        }
+        
+        config
     }
 }
 
@@ -173,6 +257,7 @@ client_id = "node1"
         config.replication.mqtt_port = 1883;
         config.replication.topic_prefix = "merkle_kv".to_string();
         config.replication.client_id = "node1".to_string();
+        config.replication.client_password = None;
 
         // Verify all configuration values are set correctly
         assert_eq!(config.host, "127.0.0.1");
@@ -184,5 +269,48 @@ client_id = "node1"
         assert_eq!(config.replication.mqtt_port, 1883);
         assert_eq!(config.replication.topic_prefix, "merkle_kv");
         assert_eq!(config.replication.client_id, "node1");
+        assert_eq!(config.replication.client_password, None);
+    }
+
+    #[test]
+    fn test_environment_variable_overrides() {
+        // Set environment variables
+        std::env::set_var("CLIENT_ID", "test_node");
+        std::env::set_var("CLIENT_PASSWORD", "test_password");
+        std::env::set_var("MQTT_BROKER", "test_broker");
+        std::env::set_var("MQTT_PORT", "8883");
+        std::env::set_var("TOPIC_PREFIX", "test_prefix");
+
+        // Create default config (which should apply env var overrides)
+        let config = Config::default();
+
+        // Verify environment variables override the defaults
+        assert_eq!(config.replication.client_id, "test_node");
+        assert_eq!(config.replication.client_password, Some("test_password".to_string()));
+        assert_eq!(config.replication.mqtt_broker, "test_broker");
+        assert_eq!(config.replication.mqtt_port, 8883);
+        assert_eq!(config.replication.topic_prefix, "test_prefix");
+
+        // Clean up environment variables
+        std::env::remove_var("CLIENT_ID");
+        std::env::remove_var("CLIENT_PASSWORD");
+        std::env::remove_var("MQTT_BROKER");
+        std::env::remove_var("MQTT_PORT");
+        std::env::remove_var("TOPIC_PREFIX");
+    }
+
+    #[test]
+    fn test_mqtt_port_invalid_environment_variable() {
+        // Set invalid MQTT_PORT environment variable
+        std::env::set_var("MQTT_PORT", "invalid_port");
+
+        // Create default config
+        let config = Config::default();
+
+        // Verify that invalid port doesn't override the default
+        assert_eq!(config.replication.mqtt_port, 1883); // Should keep default
+
+        // Clean up environment variable
+        std::env::remove_var("MQTT_PORT");
     }
 }
