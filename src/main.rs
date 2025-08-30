@@ -114,6 +114,19 @@ fn main() -> Result<()> {
         config.storage_path = path;
     }
 
+    // Print configuration for debugging (especially MQTT settings)
+    println!("Configuration loaded from: {}", config_path.display());
+    println!("  Host: {}", config.host);
+    println!("  Port: {}", config.port);
+    println!("  Engine: {}", config.engine);
+    println!("  Replication enabled: {}", config.replication.enabled);
+    println!("  MQTT Client ID: {}", config.replication.client_id);
+    match &config.replication.client_password {
+        Some(password) => println!("  MQTT Client Password: [SET] (length: {})", password.len()),
+        None => println!("  MQTT Client Password: [NOT SET]"),
+    }
+    println!();
+
     // Create a multi-threaded async runtime for handling concurrent connections
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all() // Enable all Tokio features (timers, I/O, etc.)

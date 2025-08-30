@@ -369,20 +369,3 @@ def send_command(client, command: str) -> str:
     # Receive response
     response = client.recv(1024).decode().strip()
     return response
-
-
-# Import ReplicationTestSetup
-import sys
-import os
-sys.path.append(os.path.dirname(__file__))
-from test_replication import ReplicationTestSetup
-
-
-@pytest.fixture
-async def replication_setup():
-    """Fixture to provide a ReplicationTestSetup instance for replication tests."""
-    setup = ReplicationTestSetup()
-    try:
-        yield setup
-    finally:
-        await setup.cleanup()

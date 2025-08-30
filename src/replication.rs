@@ -97,6 +97,13 @@ impl Replicator {
         );
         mqtt_options.set_keep_alive(Duration::from_secs(30));
         
+        // Set password if configured
+        if let Some(ref password) = config.replication.client_password {
+            // Note: rumqttc requires both username and password, but some MQTT brokers
+            // allow using just a password with an empty username
+            mqtt_options.set_credentials("", password);
+        }
+        
     // Create MQTT client and event loop
     let (client, mut eventloop) = AsyncClient::new(mqtt_options, 10);
         

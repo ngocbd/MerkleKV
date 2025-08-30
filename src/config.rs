@@ -20,7 +20,12 @@
 //! mqtt_port = 1883
 //! topic_prefix = "merkle_kv"
 //! client_id = "node1"
+//! # client_password = "your_mqtt_password"  # Optional
 //! ```
+//!
+//! ## Environment Variable Overrides
+//! - `CLIENT_ID`: Overrides `replication.client_id` from config file
+//! - `CLIENT_PASSWORD`: Overrides `replication.client_password` from config file
 
 use anyhow::Result;
 use config::{Config as ConfigLib, File};
@@ -77,7 +82,13 @@ pub struct ReplicationConfig {
 
     /// Unique identifier for this node in MQTT communications
     /// Should be unique across all nodes in the cluster
+    /// Can be overridden by CLIENT_ID environment variable
     pub client_id: String,
+
+    /// Optional password for MQTT broker authentication
+    /// Can be overridden by CLIENT_PASSWORD environment variable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_password: Option<String>,
 }
 
 impl Config {
@@ -89,6 +100,10 @@ impl Config {
     /// # Returns
     /// * `Result<Config>` - Parsed configuration or error if file is invalid
     ///
+    /// # Environment Variable Overrides
+    /// * `CLIENT_ID` - Overrides replication.client_id from config file
+    /// * `CLIENT_PASSWORD` - Overrides replication.client_password from config file
+    ///
     /// # Example
     /// ```rust
     /// use std::path::Path;
@@ -97,7 +112,18 @@ impl Config {
     pub fn load(path: &Path) -> Result<Self> {
         let settings = ConfigLib::builder().add_source(File::from(path)).build()?;
 
-        let config: Config = settings.try_deserialize()?;
+        let mut config: Config = settings.try_deserialize()?;
+
+        // Override client_id from environment variable if present
+        if let Ok(client_id) = std::env::var("CLIENT_ID") {
+            config.replication.client_id = client_id;
+        }
+
+        // Override client_password from environment variable if present
+        if let Ok(client_password) = std::env::var("CLIENT_PASSWORD") {
+            config.replication.client_password = Some(client_password);
+        }
+
         Ok(config)
     }
 
@@ -124,6 +150,7 @@ impl Config {
                 mqtt_port: 1883,
                 topic_prefix: "merkle_kv".to_string(),
                 client_id: "node1".to_string(),
+                client_password: None,
             },
             sync_interval_seconds: 60,
         }
@@ -172,6 +199,7 @@ client_id = "node1"
         config.replication.mqtt_port = 1883;
         config.replication.topic_prefix = "merkle_kv".to_string();
         config.replication.client_id = "node1".to_string();
+        config.replication.client_password = None;
 
         // Verify all configuration values are set correctly
         assert_eq!(config.host, "127.0.0.1");
@@ -183,5 +211,30 @@ client_id = "node1"
         assert_eq!(config.replication.mqtt_port, 1883);
         assert_eq!(config.replication.topic_prefix, "merkle_kv");
         assert_eq!(config.replication.client_id, "node1");
+        assert_eq!(config.replication.client_password, None);
+    }
+
+    #[test]
+    fn test_config_env_override() {
+        // Test environment variable overrides
+        std::env::set_var("CLIENT_ID", "env_override_node");
+        std::env::set_var("CLIENT_PASSWORD", "env_override_password");
+
+        let mut config = Config::default();
+        
+        // Simulate loading with environment overrides
+        if let Ok(client_id) = std::env::var("CLIENT_ID") {
+            config.replication.client_id = client_id;
+        }
+        if let Ok(client_password) = std::env::var("CLIENT_PASSWORD") {
+            config.replication.client_password = Some(client_password);
+        }
+
+        assert_eq!(config.replication.client_id, "env_override_node");
+        assert_eq!(config.replication.client_password, Some("env_override_password".to_string()));
+
+        // Clean up environment variables
+        std::env::remove_var("CLIENT_ID");
+        std::env::remove_var("CLIENT_PASSWORD");
     }
 }

@@ -10,3 +10,4 @@ mqtt_broker = "localhost"
 mqtt_port = 1883
 topic_prefix = "merkle_kv"
 client_id = "node1"
+# client_password = "your_mqtt_password"  # Optional MQTT password
